@@ -332,51 +332,6 @@ export default function AnnotationEditor({
     return null;
   };
 
-  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!canvasRef.current) return;
-    
-    // For rect tool, don't allow drawing if input is showing
-    if (showInput && activeTool === 'select') return;
-    
-    const canvasPos = getCanvasPos(e);
-    
-    // Check if clicking on an existing annotation (only if not in pending strokes mode)
-    if (pendingStrokes.length === 0 && !showInput) {
-      const clickedAnnotation = findAnnotationAtPoint(canvasPos);
-      if (clickedAnnotation) {
-        onSelectAnnotation(clickedAnnotation.id);
-        return;
-      }
-    }
-    
-    // Otherwise start drawing
-    setIsDrawing(true);
-    onSelectAnnotation(null);
-
-    if (activeTool === 'select') {
-      setDragStart(canvasPos);
-      setDragEnd(canvasPos);
-    } else if (activeTool === 'brush') {
-      setBrushPoints([canvasPos]);
-      // Set color on first stroke
-      if (pendingStrokes.length === 0) {
-        setPendingColor(annotationColors[annotations.length % annotationColors.length]);
-      }
-    }
-  };
-
-  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDrawing) return;
-    
-    const pos = getCanvasPos(e);
-
-    if (activeTool === 'select' && dragStart) {
-      setDragEnd(pos);
-    } else if (activeTool === 'brush') {
-      setBrushPoints(prev => [...prev, pos]);
-    }
-  };
-
   // Constrain popover position to stay within container bounds
   const constrainPopoverPosition = (pos: { x: number; y: number }) => {
     if (!containerRef.current) return pos;
@@ -412,47 +367,127 @@ export default function AnnotationEditor({
     return { x: constrainedX, y: constrainedY };
   };
 
-  const handleMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  // Global mouse handlers for drawing (to handle dragging outside canvas)
+  useEffect(() => {
     if (!isDrawing) return;
-    
-    setIsDrawing(false);
-    const screenPos = getScreenPos(e);
-    const nextColor = pendingColor || annotationColors[annotations.length % annotationColors.length];
 
-    if (activeTool === 'select' && dragStart && dragEnd) {
-      const x = Math.min(dragStart.x, dragEnd.x);
-      const y = Math.min(dragStart.y, dragEnd.y);
-      const w = Math.abs(dragEnd.x - dragStart.x);
-      const h = Math.abs(dragEnd.y - dragStart.y);
+    const handleWindowMouseMove = (e: MouseEvent) => {
+      // We need to manually calculate canvas position since the event is on window
+      if (!canvasRef.current) return;
       
-      if (w > 10 && h > 10) {
-        const highlight: RectHighlight = {
-          type: 'rect',
-          x, y, width: w, height: h,
-          color: nextColor,
-        };
-        setPendingHighlight(highlight);
-        setShowInput(true);
-        setInputPosition(constrainPopoverPosition(screenPos));
+      const canvas = canvasRef.current;
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      
+      // Clamp position to canvas bounds
+      const rawX = e.clientX - rect.left;
+      const rawY = e.clientY - rect.top;
+      
+      // Allow dragging slightly outside, but clamp for drawing data
+      const x = Math.max(0, Math.min(canvas.width, rawX * scaleX));
+      const y = Math.max(0, Math.min(canvas.height, rawY * scaleY));
+      
+      const pos = { x, y };
+
+      if (activeTool === 'select' && dragStart) {
+        setDragEnd(pos);
+      } else if (activeTool === 'brush') {
+        setBrushPoints(prev => [...prev, pos]);
       }
-    } else if (activeTool === 'brush' && brushPoints.length > 2) {
-      // Add stroke to pending strokes
-      const newStroke: BrushStroke = {
-        points: brushPoints,
-        brushSize: brushSize,
-      };
-      setPendingStrokes(prev => [...prev, newStroke]);
+    };
+
+    const handleWindowMouseUp = (e: MouseEvent) => {
+      setIsDrawing(false);
       
-      // Only open/position input on first stroke
-      if (!showInput) {
-        setShowInput(true);
-        setInputPosition(constrainPopoverPosition(screenPos));
+      // Calculate screen pos for popover
+      let screenPos = { x: 0, y: 0 };
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        screenPos = {
+          x: e.clientX - rect.left,
+          y: e.clientY - rect.top,
+        };
+      }
+
+      const nextColor = pendingColor || annotationColors[annotations.length % annotationColors.length];
+
+      if (activeTool === 'select' && dragStart && dragEnd) {
+        const x = Math.min(dragStart.x, dragEnd.x);
+        const y = Math.min(dragStart.y, dragEnd.y);
+        const w = Math.abs(dragEnd.x - dragStart.x);
+        const h = Math.abs(dragEnd.y - dragStart.y);
+        
+        if (w > 10 && h > 10) {
+          const highlight: RectHighlight = {
+            type: 'rect',
+            x, y, width: w, height: h,
+            color: nextColor,
+          };
+          setPendingHighlight(highlight);
+          setShowInput(true);
+          setInputPosition(constrainPopoverPosition(screenPos));
+        }
+      } else if (activeTool === 'brush' && brushPoints.length > 2) {
+        // Add stroke to pending strokes
+        const newStroke: BrushStroke = {
+          points: brushPoints,
+          brushSize: brushSize,
+        };
+        setPendingStrokes(prev => [...prev, newStroke]);
+        
+        // Only open/position input on first stroke
+        if (!showInput) {
+          setShowInput(true);
+          setInputPosition(constrainPopoverPosition(screenPos));
+        }
+      }
+      
+      setDragStart(null);
+      setDragEnd(null);
+      setBrushPoints([]);
+    };
+
+    window.addEventListener('mousemove', handleWindowMouseMove);
+    window.addEventListener('mouseup', handleWindowMouseUp);
+    
+    return () => {
+      window.removeEventListener('mousemove', handleWindowMouseMove);
+      window.removeEventListener('mouseup', handleWindowMouseUp);
+    };
+  }, [isDrawing, activeTool, dragStart, dragEnd, brushPoints, pendingColor, annotations.length, brushSize, showInput]);
+
+  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!canvasRef.current) return;
+    
+    // For rect tool, don't allow drawing if input is showing
+    if (showInput && activeTool === 'select') return;
+    
+    const canvasPos = getCanvasPos(e);
+    
+    // Check if clicking on an existing annotation (only if not in pending strokes mode)
+    if (pendingStrokes.length === 0 && !showInput) {
+      const clickedAnnotation = findAnnotationAtPoint(canvasPos);
+      if (clickedAnnotation) {
+        onSelectAnnotation(clickedAnnotation.id);
+        return;
       }
     }
     
-    setDragStart(null);
-    setDragEnd(null);
-    setBrushPoints([]);
+    // Otherwise start drawing
+    setIsDrawing(true);
+    onSelectAnnotation(null);
+
+    if (activeTool === 'select') {
+      setDragStart(canvasPos);
+      setDragEnd(canvasPos);
+    } else if (activeTool === 'brush') {
+      setBrushPoints([canvasPos]);
+      // Set color on first stroke
+      if (pendingStrokes.length === 0) {
+        setPendingColor(annotationColors[annotations.length % annotationColors.length]);
+      }
+    }
   };
 
   const handleSaveAnnotation = () => {
@@ -555,7 +590,7 @@ export default function AnnotationEditor({
   return (
     <div className="flex flex-col h-full w-full relative bg-neutral-900">
       {/* Sleek Toolbar - vertical on right side */}
-      <div className={`absolute right-4 top-1/2 -translate-y-1/2 z-20 flex flex-col items-center gap-2 bg-black/80 backdrop-blur-sm rounded-full px-2 py-4 shadow-lg transition-opacity duration-200 ${isDrawing ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+      <div className={`fixed right-4 top-1/2 -translate-y-1/2 z-50 flex flex-col items-center gap-2 bg-black/80 backdrop-blur-sm rounded-full px-2 py-4 shadow-lg transition-opacity duration-200 ${isDrawing ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
         {/* Tool Switcher */}
         <button 
           onClick={() => setActiveTool('select')}
@@ -631,16 +666,6 @@ export default function AnnotationEditor({
           <canvas
             ref={canvasRef}
             onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-            onMouseLeave={() => {
-              if (isDrawing) {
-                setIsDrawing(false);
-                setDragStart(null);
-                setDragEnd(null);
-                setBrushPoints([]);
-              }
-            }}
             className="cursor-crosshair"
           />
         )}
@@ -706,3 +731,4 @@ export default function AnnotationEditor({
     </div>
   );
 }
+
