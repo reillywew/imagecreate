@@ -377,6 +377,41 @@ export default function AnnotationEditor({
     }
   };
 
+  // Constrain popover position to stay within container bounds
+  const constrainPopoverPosition = (pos: { x: number; y: number }) => {
+    if (!containerRef.current) return pos;
+    
+    const containerRect = containerRef.current.getBoundingClientRect();
+    const POPOVER_WIDTH = 256; // w-64 = 16rem = 256px
+    const POPOVER_HEIGHT = 180; // Approximate height
+    const PADDING = 16;
+    
+    let constrainedX = pos.x;
+    let constrainedY = pos.y;
+    
+    // Keep within right edge
+    if (constrainedX + POPOVER_WIDTH > containerRect.width - PADDING) {
+      constrainedX = containerRect.width - POPOVER_WIDTH - PADDING;
+    }
+    
+    // Keep within left edge
+    if (constrainedX < PADDING) {
+      constrainedX = PADDING;
+    }
+    
+    // Keep within bottom edge
+    if (constrainedY + POPOVER_HEIGHT > containerRect.height - PADDING) {
+      constrainedY = containerRect.height - POPOVER_HEIGHT - PADDING;
+    }
+    
+    // Keep within top edge
+    if (constrainedY < PADDING) {
+      constrainedY = PADDING;
+    }
+    
+    return { x: constrainedX, y: constrainedY };
+  };
+
   const handleMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!isDrawing) return;
     
@@ -398,7 +433,7 @@ export default function AnnotationEditor({
         };
         setPendingHighlight(highlight);
         setShowInput(true);
-        setInputPosition(screenPos);
+        setInputPosition(constrainPopoverPosition(screenPos));
       }
     } else if (activeTool === 'brush' && brushPoints.length > 2) {
       // Add stroke to pending strokes
@@ -411,7 +446,7 @@ export default function AnnotationEditor({
       // Only open/position input on first stroke
       if (!showInput) {
         setShowInput(true);
-        setInputPosition(screenPos);
+        setInputPosition(constrainPopoverPosition(screenPos));
       }
     }
     
@@ -497,10 +532,7 @@ export default function AnnotationEditor({
     const newX = e.clientX - popoverDragOffset.x - containerRect.left;
     const newY = e.clientY - popoverDragOffset.y - containerRect.top;
     
-    setInputPosition({
-      x: Math.max(16, Math.min(newX, containerRect.width - 280)),
-      y: Math.max(16, Math.min(newY, containerRect.height - 180)),
-    });
+    setInputPosition(constrainPopoverPosition({ x: newX, y: newY }));
   }, [isDraggingPopover, popoverDragOffset]);
 
   const handlePopoverMouseUp = useCallback(() => {
