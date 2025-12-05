@@ -1,32 +1,76 @@
-"use client";
-
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Send, CheckCircle, MessageCircle } from 'lucide-react';
-import { Annotation, Reply } from './types';
+import { X, Send, CheckCircle, RefreshCw } from 'lucide-react';
+import { Annotation } from './types';
 
 interface AnnotationChatProps {
   annotation: Annotation;
   position: { x: number; y: number };
   onClose: () => void;
   onReply: (annotationId: string, text: string) => void;
-  onMarkComplete: (annotationId: string) => void;
+  onMarkComplete: (annotationId:string) => void;
+  onPositionChange: (position: { x: number; y: number }) => void;
+  onResetPosition: () => void;
 }
 
-export default function AnnotationChat({ 
-  annotation, 
-  position, 
-  onClose, 
-  onReply, 
-  onMarkComplete 
+export default function AnnotationChat({
+  annotation,
+  position,
+  onClose,
+  onReply,
+  onMarkComplete,
+  onPositionChange,
+  onResetPosition,
 }: AnnotationChatProps) {
   const [replyText, setReplyText] = useState("");
   const [showConfirm, setShowConfirm] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const chatRef = useRef<HTMLDivElement>(null);
+
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
+
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    // Prevent starting a drag from buttons
+    if ((e.target as HTMLElement).closest('button')) return;
+    
+    setIsDragging(true);
+    setDragOffset({
+      x: e.clientX - position.x,
+      y: e.clientY - position.y,
+    });
+  };
+
+  const handleMouseMove = (e: MouseEvent) => {
+    if (isDragging) {
+      onPositionChange({
+        x: e.clientX - dragOffset.x,
+        y: e.clientY - dragOffset.y,
+      });
+    }
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  useEffect(() => {
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    } else {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, dragOffset]);
+
 
   const handleSendReply = () => {
     if (!replyText.trim()) return;
@@ -54,7 +98,6 @@ export default function AnnotationChat({
 
   return (
     <div 
-      ref={chatRef}
       style={{ 
         position: 'absolute', 
         left: position.x, 
@@ -65,7 +108,10 @@ export default function AnnotationChat({
       className="bg-white rounded-lg shadow-2xl border border-gray-200 z-30 overflow-hidden"
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50">
+      <div 
+        onMouseDown={handleMouseDown}
+        className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50 cursor-move"
+      >
         <div className="flex items-center gap-2">
           <div 
             className="w-3 h-3 rounded-full" 
@@ -73,12 +119,22 @@ export default function AnnotationChat({
           />
           <span className="text-xs font-medium text-gray-600">Annotation Thread</span>
         </div>
-        <button 
-          onClick={onClose}
-          className="text-gray-400 hover:text-gray-600 p-1"
-        >
-          <X size={16} />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={onResetPosition}
+            className="text-gray-400 hover:text-gray-600 p-1"
+            title="Reset Position"
+          >
+            <RefreshCw size={14} />
+          </button>
+          <button 
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 p-1"
+            title="Close"
+          >
+            <X size={16} />
+          </button>
+        </div>
       </div>
 
       {/* Messages */}
@@ -155,4 +211,3 @@ export default function AnnotationChat({
     </div>
   );
 }
-

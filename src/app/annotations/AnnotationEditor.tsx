@@ -613,7 +613,7 @@ export default function AnnotationEditor({
             <Brush size={18} />
           </button>
           {/* Brush Options - Animated */}
-          <div className={`absolute left-full top-1/2 -translate-y-1/2 ml-3 flex flex-col items-center gap-2 bg-black/80 backdrop-blur-sm rounded-full px-2 py-4 shadow-lg transition-all duration-200 ease-in-out origin-left ${activeTool === 'brush' ? 'opacity-100 scale-100' : 'opacity-0 scale-90 pointer-events-none'}`}>
+          <div className={`absolute right-full top-1/2 -translate-y-1/2 mr-3 flex flex-col items-center gap-2 bg-black/80 backdrop-blur-sm rounded-full px-2 py-4 shadow-lg transition-all duration-200 ease-in-out origin-right ${activeTool === 'brush' ? 'opacity-100 scale-100' : 'opacity-0 scale-90 pointer-events-none'}`}>
               {/* Brush Size */}
               <div className="flex flex-col items-center gap-1">
                 <span className="text-[8px] font-mono text-white/50">SIZE</span>
