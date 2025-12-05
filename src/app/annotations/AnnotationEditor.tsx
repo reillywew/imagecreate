@@ -440,6 +440,11 @@ export default function AnnotationEditor({
         if (!showInput) {
           setShowInput(true);
           setInputPosition(constrainPopoverPosition(screenPos));
+        } else {
+          // Re-focus the input after adding a stroke
+          setTimeout(() => {
+            inputRef.current?.focus();
+          }, 0);
         }
       }
       
@@ -599,60 +604,58 @@ export default function AnnotationEditor({
         >
           <Square size={18} />
         </button>
-        <button 
-          onClick={() => setActiveTool('brush')}
-          className={`p-2 rounded-full transition ${activeTool === 'brush' ? 'bg-white text-black' : 'text-white/70 hover:text-white'}`}
-          title="Brush Tool (B)"
-        >
-          <Brush size={18} />
-        </button>
+        <div className="relative">
+          <button 
+            onClick={() => setActiveTool('brush')}
+            className={`p-2 rounded-full transition ${activeTool === 'brush' ? 'bg-white text-black' : 'text-white/70 hover:text-white'}`}
+            title="Brush Tool (B)"
+          >
+            <Brush size={18} />
+          </button>
+          {/* Brush Options - Animated */}
+          <div className={`absolute left-full top-1/2 -translate-y-1/2 ml-3 flex flex-col items-center gap-2 bg-black/80 backdrop-blur-sm rounded-full px-2 py-4 shadow-lg transition-all duration-200 ease-in-out origin-left ${activeTool === 'brush' ? 'opacity-100 scale-100' : 'opacity-0 scale-90 pointer-events-none'}`}>
+              {/* Brush Size */}
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-[8px] font-mono text-white/50">SIZE</span>
+                <input 
+                  type="range" 
+                  min="5" 
+                  max="100" 
+                  value={brushSize} 
+                  onChange={(e) => setBrushSize(Number(e.target.value))} 
+                  className="w-16 accent-white -rotate-90 origin-center"
+                  style={{ marginTop: '24px', marginBottom: '24px' }}
+                />
+                <span className="text-[10px] font-mono text-white/70">{brushSize}</span>
+              </div>
+              <div className="h-px w-6 bg-white/20" />
+              {/* Brush Opacity */}
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-[8px] font-mono text-white/50">OPACITY</span>
+                <input 
+                  type="range" 
+                  min="10" 
+                  max="100" 
+                  value={brushOpacity * 100} 
+                  onChange={(e) => setBrushOpacity(Number(e.target.value) / 100)} 
+                  className="w-16 accent-white -rotate-90 origin-center"
+                  style={{ marginTop: '24px', marginBottom: '24px' }}
+                />
+                <span className="text-[10px] font-mono text-white/70">{Math.round(brushOpacity * 100)}%</span>
+              </div>
+          </div>
+        </div>
 
         <div className="h-px w-6 bg-white/20" />
 
         {/* Eye Toggle - show/hide highlights */}
         <button
           onClick={() => setShowHighlights(!showHighlights)}
-          className={`p-2 rounded-full transition ${showHighlights ? 'bg-white text-black' : 'bg-red-500/80 text-white'}`}
+          className={`p-2 rounded-full transition ${showHighlights ? 'text-white/70 hover:text-white' : 'bg-white/10 text-white'}`}
           title={showHighlights ? "Hide Highlights" : "Show Highlights"}
         >
           {showHighlights ? <Eye size={18} /> : <EyeOff size={18} />}
         </button>
-
-        {/* Brush Options */}
-        {activeTool === 'brush' && (
-          <>
-            <div className="h-px w-6 bg-white/20" />
-            {/* Brush Size */}
-            <div className="flex flex-col items-center gap-1">
-              <span className="text-[8px] font-mono text-white/50">SIZE</span>
-              <input 
-                type="range" 
-                min="5" 
-                max="100" 
-                value={brushSize} 
-                onChange={(e) => setBrushSize(Number(e.target.value))} 
-                className="w-16 accent-white -rotate-90 origin-center"
-                style={{ marginTop: '24px', marginBottom: '24px' }}
-              />
-              <span className="text-[10px] font-mono text-white/70">{brushSize}</span>
-            </div>
-            <div className="h-px w-6 bg-white/20" />
-            {/* Brush Opacity */}
-            <div className="flex flex-col items-center gap-1">
-              <span className="text-[8px] font-mono text-white/50">OPACITY</span>
-              <input 
-                type="range" 
-                min="10" 
-                max="100" 
-                value={brushOpacity * 100} 
-                onChange={(e) => setBrushOpacity(Number(e.target.value) / 100)} 
-                className="w-16 accent-white -rotate-90 origin-center"
-                style={{ marginTop: '24px', marginBottom: '24px' }}
-              />
-              <span className="text-[10px] font-mono text-white/70">{Math.round(brushOpacity * 100)}%</span>
-            </div>
-          </>
-        )}
       </div>
 
       {/* Canvas Area - Full Screen */}
