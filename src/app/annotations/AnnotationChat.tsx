@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Send, CheckCircle, RefreshCw } from 'lucide-react';
+import { X, Send, CheckCircle } from 'lucide-react';
 import { Annotation } from './types';
 
 interface AnnotationChatProps {
@@ -122,10 +122,10 @@ export default function AnnotationChat({
         <div className="flex items-center gap-1">
           <button
             onClick={onResetPosition}
-            className="text-gray-400 hover:text-gray-600 p-1"
+            className="text-gray-400 hover:text-gray-600 p-1 text-xs"
             title="Reset Position"
           >
-            <RefreshCw size={14} />
+            Reset
           </button>
           <button 
             onClick={onClose}

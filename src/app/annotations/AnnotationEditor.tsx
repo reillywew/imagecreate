@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useRef, useState, useEffect, useCallback } from "react";
-import { Square, Brush, Eye, EyeOff } from "lucide-react";
+import { Square, Brush, Eye, EyeOff, ChevronRight, ChevronLeft } from "lucide-react";
 import { Highlight, RectHighlight, BrushHighlight, BrushStroke, Point, Annotation } from "./types";
 
 interface AnnotationEditorProps {
@@ -67,8 +67,11 @@ export default function AnnotationEditor({
   
   // Tool state
   const [activeTool, setActiveTool] = useState<Tool>('select');
+  const [isBrushSettingsOpen, setIsBrushSettingsOpen] = useState(false);
   const [brushSize, setBrushSize] = useState(20);
   const [brushOpacity, setBrushOpacity] = useState(0.4);
+  
+  const [isToolbarVisible, setIsToolbarVisible] = useState(true);
   
   // View state
   const [showHighlights, setShowHighlights] = useState(true);
@@ -282,13 +285,23 @@ export default function AnnotationEditor({
       
       if (e.key === '[') setBrushSize(s => Math.max(5, s - 5));
       if (e.key === ']') setBrushSize(s => Math.min(100, s + 5));
-      if (e.key === 'b' || e.key === 'B') setActiveTool('brush');
-      if (e.key === 's' || e.key === 'S') setActiveTool('select');
+      if (e.key === 'b' || e.key === 'B') {
+        if (activeTool === 'brush') {
+          setIsBrushSettingsOpen(prev => !prev);
+        } else {
+          setActiveTool('brush');
+          setIsBrushSettingsOpen(true);
+        }
+      }
+      if (e.key === 's' || e.key === 'S') {
+        setActiveTool('select');
+        setIsBrushSettingsOpen(false);
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [activeTool]);
 
   const getCanvasPos = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current!;
@@ -594,69 +607,91 @@ export default function AnnotationEditor({
 
   return (
     <div className="flex flex-col h-full w-full relative bg-neutral-900">
-      {/* Sleek Toolbar - vertical on right side */}
-      <div className={`fixed right-4 top-1/2 -translate-y-1/2 z-50 flex flex-col items-center gap-2 bg-black/80 backdrop-blur-sm rounded-full px-2 py-4 shadow-lg transition-opacity duration-200 ${isDrawing ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
-        {/* Tool Switcher */}
-        <button 
-          onClick={() => setActiveTool('select')}
-          className={`p-2 rounded-full transition ${activeTool === 'select' ? 'bg-white text-black' : 'text-white/70 hover:text-white'}`}
-          title="Select Tool (S)"
-        >
-          <Square size={18} />
-        </button>
-        <div className="relative">
-          <button 
-            onClick={() => setActiveTool('brush')}
-            className={`p-2 rounded-full transition ${activeTool === 'brush' ? 'bg-white text-black' : 'text-white/70 hover:text-white'}`}
-            title="Brush Tool (B)"
-          >
-            <Brush size={18} />
-          </button>
-          {/* Brush Options - Animated */}
-          <div className={`absolute right-full top-1/2 -translate-y-1/2 mr-3 flex flex-col items-center gap-2 bg-black/80 backdrop-blur-sm rounded-full px-2 py-4 shadow-lg transition-all duration-200 ease-in-out origin-right ${activeTool === 'brush' ? 'opacity-100 scale-100' : 'opacity-0 scale-90 pointer-events-none'}`}>
-              {/* Brush Size */}
-              <div className="flex flex-col items-center gap-1">
-                <span className="text-[8px] font-mono text-white/50">SIZE</span>
-                <input 
-                  type="range" 
-                  min="5" 
-                  max="100" 
-                  value={brushSize} 
-                  onChange={(e) => setBrushSize(Number(e.target.value))} 
-                  className="w-16 accent-white -rotate-90 origin-center"
-                  style={{ marginTop: '24px', marginBottom: '24px' }}
-                />
-                <span className="text-[10px] font-mono text-white/70">{brushSize}</span>
+            {/* Toolbar & Toggle */}
+            <div className={`fixed top-1/2 -translate-y-1/2 z-50 transition-all duration-300 ease-in-out ${isToolbarVisible ? 'right-4' : '-right-14'}`}>
+              <div className="relative flex items-center">
+                <button
+                  onClick={() => setIsToolbarVisible(!isToolbarVisible)}
+                  className="absolute top-1/2 -translate-y-1/2 -left-8 bg-black/80 backdrop-blur-sm rounded-l-full p-3 text-white/70 hover:text-white focus:outline-none"
+                  title={isToolbarVisible ? 'Hide Toolbar' : 'Show Toolbar'}
+                >
+                  {isToolbarVisible ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+                </button>
+      
+                <div className={`flex flex-col items-center gap-2 bg-black/80 backdrop-blur-sm rounded-full px-2 py-4 shadow-lg transition-opacity duration-200 ${isDrawing ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+                  {/* Tool Switcher */}
+                  <button 
+                    onClick={() => {
+                      setActiveTool('select');
+                      setIsBrushSettingsOpen(false);
+                    }}
+                    className={`p-2 rounded-full transition ${activeTool === 'select' ? 'bg-white text-black' : 'text-white/70 hover:text-white'}`}
+                    title="Select Tool (S)"
+                  >
+                    <Square size={18} />
+                  </button>
+                  <div className="relative">
+                    <button 
+                      onClick={() => {
+                        if (activeTool === 'brush') {
+                          setIsBrushSettingsOpen(prev => !prev);
+                        } else {
+                          setActiveTool('brush');
+                          setIsBrushSettingsOpen(true);
+                        }
+                      }}
+                      className={`p-2 rounded-full transition ${activeTool === 'brush' ? 'bg-white text-black' : 'text-white/70 hover:text-white'}`}
+                      title="Brush Tool (B)"
+                    >
+                      <Brush size={18} />
+                    </button>
+                    {/* Brush Options - Animated */}
+                    <div className={`absolute right-full top-1/2 -translate-y-1/2 mr-3 flex flex-col items-center gap-2 bg-black/80 backdrop-blur-sm rounded-full px-2 py-4 shadow-lg transition-all duration-200 ease-in-out origin-right ${activeTool === 'brush' && isBrushSettingsOpen ? 'opacity-100 scale-100' : 'opacity-0 scale-90 pointer-events-none'}`}>
+                        {/* Brush Size */}
+                        <div className="flex flex-col items-center gap-1">
+                          <span className="text-[8px] font-mono text-white/50">SIZE</span>
+                          <input 
+                            type="range" 
+                            min="5" 
+                            max="100" 
+                            value={brushSize} 
+                            onChange={(e) => setBrushSize(Number(e.target.value))} 
+                            className="w-16 accent-white -rotate-90 origin-center"
+                            style={{ marginTop: '24px', marginBottom: '24px' }}
+                          />
+                          <span className="text-[10px] font-mono text-white/70">{brushSize}</span>
+                        </div>
+                        <div className="h-px w-6 bg-white/20" />
+                        {/* Brush Opacity */}
+                        <div className="flex flex-col items-center gap-1">
+                          <span className="text-[8px] font-mono text-white/50">OPACITY</span>
+                          <input 
+                            type="range" 
+                            min="10" 
+                            max="100" 
+                            value={brushOpacity * 100} 
+                            onChange={(e) => setBrushOpacity(Number(e.target.value) / 100)} 
+                            className="w-16 accent-white -rotate-90 origin-center"
+                            style={{ marginTop: '24px', marginBottom: '24px' }}
+                          />
+                          <span className="text-[10px] font-mono text-white/70">{Math.round(brushOpacity * 100)}%</span>
+                        </div>
+                    </div>
+                  </div>
+      
+                  <div className="h-px w-6 bg-white/20" />
+      
+                  {/* Eye Toggle - show/hide highlights */}
+                  <button
+                    onClick={() => setShowHighlights(!showHighlights)}
+                    className={`p-2 rounded-full transition ${showHighlights ? 'text-white/70 hover:text-white' : 'bg-white/10 text-white'}`}
+                    title={showHighlights ? "Hide Highlights" : "Show Highlights"}
+                  >
+                    {showHighlights ? <Eye size={18} /> : <EyeOff size={18} />}
+                  </button>
+                </div>
               </div>
-              <div className="h-px w-6 bg-white/20" />
-              {/* Brush Opacity */}
-              <div className="flex flex-col items-center gap-1">
-                <span className="text-[8px] font-mono text-white/50">OPACITY</span>
-                <input 
-                  type="range" 
-                  min="10" 
-                  max="100" 
-                  value={brushOpacity * 100} 
-                  onChange={(e) => setBrushOpacity(Number(e.target.value) / 100)} 
-                  className="w-16 accent-white -rotate-90 origin-center"
-                  style={{ marginTop: '24px', marginBottom: '24px' }}
-                />
-                <span className="text-[10px] font-mono text-white/70">{Math.round(brushOpacity * 100)}%</span>
-              </div>
-          </div>
-        </div>
-
-        <div className="h-px w-6 bg-white/20" />
-
-        {/* Eye Toggle - show/hide highlights */}
-        <button
-          onClick={() => setShowHighlights(!showHighlights)}
-          className={`p-2 rounded-full transition ${showHighlights ? 'text-white/70 hover:text-white' : 'bg-white/10 text-white'}`}
-          title={showHighlights ? "Hide Highlights" : "Show Highlights"}
-        >
-          {showHighlights ? <Eye size={18} /> : <EyeOff size={18} />}
-        </button>
-      </div>
+            </div>
 
       {/* Canvas Area - Full Screen */}
       <div 
