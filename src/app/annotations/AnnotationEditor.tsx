@@ -290,15 +290,15 @@ export default function AnnotationEditor({
       if (e.key === ']') setBrushSize(s => Math.min(100, s + 5));
       if (e.key === 'b' || e.key === 'B') {
         if (activeTool === 'brush') {
-          setIsBrushSettingsOpen(prev => !prev);
+          setBrushSettingsVisible(prev => !prev);
         } else {
           setActiveTool('brush');
-          setIsBrushSettingsOpen(true);
+          setBrushSettingsVisible(true);
         }
       }
       if (e.key === 's' || e.key === 'S') {
         setActiveTool('select');
-        setIsBrushSettingsOpen(false);
+        setBrushSettingsVisible(false);
       }
     };
 
