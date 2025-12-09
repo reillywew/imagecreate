@@ -15,6 +15,7 @@ export default function AnnotationsPage() {
   const [customChatPositions, setCustomChatPositions] = useState<Record<string, { x: number, y: number }>>({});
   const [panelOpen, setPanelOpen] = useState(false);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [viewTick, setViewTick] = useState(0);
   const editorRef = useRef<HTMLDivElement>(null);
 
   const selectedAnnotation = annotations.find(a => a.id === selectedId && !a.completed);
@@ -27,6 +28,7 @@ export default function AnnotationsPage() {
       if (stored) {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed)) {
+          // eslint-disable-next-line react-hooks/set-state-in-effect
           setAnnotations(parsed);
         }
       }
@@ -94,6 +96,7 @@ export default function AnnotationsPage() {
     if (selectedAnnotation) {
       // If a custom position exists, use it.
       if (customChatPositions[selectedAnnotation.id]) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setChatPosition(customChatPositions[selectedAnnotation.id]);
         return;
       }
@@ -162,7 +165,11 @@ export default function AnnotationsPage() {
     } else {
       setChatPosition(null);
     }
-  }, [selectedAnnotation, customChatPositions, panelOpen]);
+  }, [selectedAnnotation, customChatPositions, panelOpen, viewTick]);
+
+  const handleViewChange = React.useCallback(() => {
+    setViewTick(t => t + 1);
+  }, []);
 
   return (
     <div className="flex h-screen w-full bg-neutral-900 overflow-hidden">
@@ -269,9 +276,11 @@ export default function AnnotationsPage() {
         <AnnotationEditor
           annotations={annotations}
           onAddAnnotation={handleAddAnnotation}
+          onClearAnnotations={() => setAnnotations([])}
           selectedAnnotationId={selectedId}
           onSelectAnnotation={setSelectedId}
           panelOpen={panelOpen}
+          onViewChange={handleViewChange}
         />
 
         {/* Floating Chat */}

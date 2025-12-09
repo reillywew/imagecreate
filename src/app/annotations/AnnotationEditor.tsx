@@ -1,15 +1,17 @@
 "use client";
 
 import React, { useRef, useState, useEffect, useCallback } from "react";
-import { Square, Brush, Eye, EyeOff, ChevronRight, ChevronLeft } from "lucide-react";
+import { Square, Brush, Eye, EyeOff, ChevronRight, ChevronLeft, Upload } from "lucide-react";
 import { Highlight, RectHighlight, BrushHighlight, BrushStroke, Point, Annotation } from "./types";
 
 interface AnnotationEditorProps {
   annotations: Annotation[];
   onAddAnnotation: (annotation: Annotation) => void;
+  onClearAnnotations: () => void;
   selectedAnnotationId: string | null;
   onSelectAnnotation: (id: string | null) => void;
   panelOpen: boolean;
+  onViewChange?: () => void;
 }
 
 type Tool = 'select' | 'brush';
@@ -58,10 +60,12 @@ function isPointInRect(point: Point, rect: RectHighlight): boolean {
 
 export default function AnnotationEditor({ 
   annotations, 
-  onAddAnnotation, 
+  onAddAnnotation,
+  onClearAnnotations,
   selectedAnnotationId,
   onSelectAnnotation,
-  panelOpen
+  panelOpen,
+  onViewChange
 }: AnnotationEditorProps) {
   const [originalImage, setOriginalImage] = useState<HTMLImageElement | null>(null);
   
@@ -71,13 +75,10 @@ export default function AnnotationEditor({
   const [brushOpacity, setBrushOpacity] = useState(0.4);
   const [brushSettingsVisible, setBrushSettingsVisible] = useState(true);
   
-  // Toolbar dragging
-  const [toolbarY, setToolbarY] = useState(0); // Vertical offset from center
-  const [isDraggingToolbar, setIsDraggingToolbar] = useState(false);
-  const [toolbarDragStart, setToolbarDragStart] = useState<number>(0);
-  
   // View state
   const [showHighlights, setShowHighlights] = useState(true);
+  const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
+  const [isPanning, setIsPanning] = useState(false);
   
   // Drawing state
   const [isDrawing, setIsDrawing] = useState(false);
@@ -99,7 +100,14 @@ export default function AnnotationEditor({
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const wheelTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Maximum canvas dimensions to prevent memory issues
+  // Most browsers can handle up to ~16,384px, but we'll be conservative
+  const MAX_CANVAS_DIMENSION = 8192; // 8K max dimension
 
   // Subtle highlight colors
   const annotationColors = [
@@ -111,21 +119,292 @@ export default function AnnotationEditor({
     'rgba(100, 220, 220, 0.25)',
   ];
 
-  // Load hardcoded image on mount
-  useEffect(() => {
-    const img = new Image();
-    img.onload = () => {
-      console.log('Image loaded:', img.width, img.height);
-      setOriginalImage(img);
+  // Helper to get valid bounds based on current scale
+  const getBounds = (currentScale: number) => {
+    if (!containerRef.current || !canvasRef.current) return { minX: 0, maxX: 0, minY: 0, maxY: 0 };
+    
+    const container = containerRef.current.getBoundingClientRect();
+    // We need the dimensions of the canvas as it is displayed (the "fitted" size)
+    // redrawCanvas sets the style.width/height, so we can use that.
+    // However, during a transform, getBoundingClientRect on canvas includes the transform.
+    // We need the 'base' fitted size.
+    // Since we wrap the canvas in a div and transform that div, the canvas's own style.width/height 
+    // (set by redrawCanvas) remains the "base" size (scale=1).
+    let canvasBaseWidth = parseFloat(canvasRef.current.style.width);
+    let canvasBaseHeight = parseFloat(canvasRef.current.style.height);
+
+    // Fallback if style is not set yet (e.g. initial render)
+    if (isNaN(canvasBaseWidth)) canvasBaseWidth = canvasRef.current.width;
+    if (isNaN(canvasBaseHeight)) canvasBaseHeight = canvasRef.current.height;
+
+    const scaledWidth = canvasBaseWidth * currentScale;
+    const scaledHeight = canvasBaseHeight * currentScale;
+
+    // Calculate bounds to keep image somewhat in view
+    // Allow panning until the edge of the image hits the center of the screen? 
+    // Or stricter: image edges cannot go too far inside the container.
+    
+    // Let's implement: Image cannot be panned completely out of view.
+    // At least some margin must remain visible.
+
+    // If image is smaller than container, center it (restrict pan to 0 usually, but we allow elastic)
+    // If image is larger, allow panning to edges.
+    
+    // Simple logic: The transformed center of the image shouldn't go too far.
+    // Let's use the edges.
+    
+    const overflowX = Math.max(0, (scaledWidth - container.width) / 2);
+    const overflowY = Math.max(0, (scaledHeight - container.height) / 2);
+    
+    // If scaled image < container, it's centered by default logic if x/y=0 (assuming we handle centering)
+    // But our transform origin is 0,0 (top-left of wrapper). 
+    // AND the canvas is normally centered by flexbox in the container.
+    // Wait, redrawCanvas logic sets size, but flexbox centers it: "flex items-center justify-center".
+    // So (0,0) transform means "centered".
+    
+    return {
+      minX: -overflowX,
+      maxX: overflowX,
+      minY: -overflowY,
+      maxY: overflowY
     };
+  };
+
+  // Handle Wheel (Pan & Zoom)
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      
+      const MAX_OVERSHOOT = 200; // Max pixels past the edge
+      const MIN_ELASTIC_SCALE = 0.5; // Allow zooming out a bit
+      const MAX_ELASTIC_SCALE = 5.0; // Max zoom
+
+      // Detect Zoom (Ctrl+Wheel or Pinch)
+      if (e.ctrlKey || e.metaKey) {
+        // Zoom
+        const zoomSensitivity = 0.002;
+        const delta = -e.deltaY * zoomSensitivity;
+        
+        setTransform(prev => {
+          let newScale = prev.scale + delta;
+          
+          // Hard clamp
+          if (newScale < MIN_ELASTIC_SCALE) newScale = MIN_ELASTIC_SCALE;
+          if (newScale > MAX_ELASTIC_SCALE) newScale = MAX_ELASTIC_SCALE;
+          
+          return {
+            ...prev,
+            scale: newScale
+          };
+        });
+      } else {
+        // Pan
+        setTransform(prev => {
+          const bounds = getBounds(prev.scale);
+          let dx = -e.deltaX;
+          let dy = -e.deltaY;
+          
+          // Calculate current overshoot
+          let currentOvershootX = 0;
+          if (prev.x > bounds.maxX) currentOvershootX = prev.x - bounds.maxX;
+          if (prev.x < bounds.minX) currentOvershootX = bounds.minX - prev.x;
+          
+          let currentOvershootY = 0;
+          if (prev.y > bounds.maxY) currentOvershootY = prev.y - bounds.maxY;
+          if (prev.y < bounds.minY) currentOvershootY = bounds.minY - prev.y;
+
+          // Apply resistance based on overshoot
+          // If we are pushing OUTWARDS (increasing overshoot), apply resistance
+          // If we are pushing INWARDS (decreasing overshoot), allow full speed
+          
+          const resistanceX = Math.max(0, 1 - (currentOvershootX / MAX_OVERSHOOT));
+          const resistanceY = Math.max(0, 1 - (currentOvershootY / MAX_OVERSHOOT));
+
+          // Check direction relative to center
+          // if prev.x > maxX (right side), and dx > 0 (moving right), apply resistance
+          if (prev.x > bounds.maxX && dx > 0) dx *= resistanceX;
+          if (prev.x < bounds.minX && dx < 0) dx *= resistanceX;
+          
+          if (prev.y > bounds.maxY && dy > 0) dy *= resistanceY;
+          if (prev.y < bounds.minY && dy < 0) dy *= resistanceY;
+
+          // If inside bounds, or moving back towards center, no resistance (factor = 1)
+          
+          return {
+            ...prev,
+            x: prev.x + dx,
+            y: prev.y + dy
+          };
+        });
+      }
+      
+      setIsPanning(true);
+      if (onViewChange) onViewChange();
+
+      // Debounce snap-back
+      if (wheelTimeoutRef.current) clearTimeout(wheelTimeoutRef.current);
+      wheelTimeoutRef.current = setTimeout(() => {
+        setIsPanning(false);
+        setTransform(prev => {
+          // Snap scale
+          let targetScale = prev.scale;
+          if (targetScale < 1) targetScale = 1; 
+          if (targetScale > 3) targetScale = 3;
+          
+          const finalBounds = getBounds(targetScale);
+          
+          let targetX = prev.x;
+          let targetY = prev.y;
+          
+          // Clamp Pan
+          if (targetScale === 1) {
+            targetX = 0;
+            targetY = 0;
+          } else {
+            if (targetX < finalBounds.minX) targetX = finalBounds.minX;
+            if (targetX > finalBounds.maxX) targetX = finalBounds.maxX;
+            if (targetY < finalBounds.minY) targetY = finalBounds.minY;
+            if (targetY > finalBounds.maxY) targetY = finalBounds.maxY;
+          }
+          
+          return { x: targetX, y: targetY, scale: targetScale };
+        });
+      }, 500);
+    };
+
+    container.addEventListener('wheel', onWheel, { passive: false });
+    return () => container.removeEventListener('wheel', onWheel);
+  }, [onViewChange]);
+
+  // Load and process image with size limits
+  const loadImage = useCallback((src: string | File) => {
+    const img = new Image();
+    
+    img.onload = () => {
+      let finalWidth = img.width;
+      let finalHeight = img.height;
+      const originalWidth = img.width;
+      const originalHeight = img.height;
+      
+      // Downscale if image exceeds maximum dimensions while preserving aspect ratio
+      if (finalWidth > MAX_CANVAS_DIMENSION || finalHeight > MAX_CANVAS_DIMENSION) {
+        const scale = Math.min(
+          MAX_CANVAS_DIMENSION / finalWidth,
+          MAX_CANVAS_DIMENSION / finalHeight
+        );
+        finalWidth = Math.floor(finalWidth * scale);
+        finalHeight = Math.floor(finalHeight * scale);
+        
+        console.log(`Downscaling image from ${originalWidth}x${originalHeight} to ${finalWidth}x${finalHeight}`);
+        
+        // Create a downscaled version using canvas
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = finalWidth;
+        tempCanvas.height = finalHeight;
+        const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: false });
+        
+        if (!tempCtx) {
+          console.error('Failed to get canvas context');
+          setOriginalImage(img); // Fallback to original
+          return;
+        }
+        
+        // Use high-quality image smoothing for downscaling
+        tempCtx.imageSmoothingEnabled = true;
+        tempCtx.imageSmoothingQuality = 'high';
+        
+        // Draw the image scaled down
+        tempCtx.drawImage(img, 0, 0, finalWidth, finalHeight);
+        
+        // Create new image from the downscaled canvas
+        tempCanvas.toBlob((blob) => {
+          if (!blob) {
+            console.error('Failed to create blob from canvas');
+            setOriginalImage(img); // Fallback to original
+            return;
+          }
+          
+          const downscaledImg = new Image();
+          downscaledImg.onload = () => {
+            console.log('Image loaded (downscaled):', downscaledImg.width, 'x', downscaledImg.height);
+            setOriginalImage(downscaledImg);
+          };
+          downscaledImg.onerror = () => {
+            console.error('Failed to load downscaled image, using original');
+            setOriginalImage(img); // Fallback to original
+          };
+          downscaledImg.src = URL.createObjectURL(blob);
+        }, 'image/png', 1.0); // High quality PNG
+      } else {
+        console.log('Image loaded:', img.width, 'x', img.height);
+        setOriginalImage(img);
+      }
+    };
+    
     img.onerror = (e) => {
       console.error('Failed to load image:', e);
+      alert('Failed to load image. Please try a different file.');
     };
-    img.src = '/annotation/ChatGPT Image Nov 24, 2025, 03_40_33 PM.jpeg';
+    
+    if (src instanceof File) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        if (e.target?.result) {
+          img.src = e.target.result as string;
+        }
+      };
+      reader.onerror = () => {
+        alert('Failed to read file. Please try a different image.');
+      };
+      reader.readAsDataURL(src);
+    } else {
+      img.src = src;
+    }
   }, []);
+
+  // Load default image on mount
+  useEffect(() => {
+    loadImage('/annotation/ChatGPT Image Nov 24, 2025, 03_40_33 PM.jpeg');
+  }, [loadImage]);
+
+  // Handle file upload
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      alert('Please upload an image file (JPEG, PNG, GIF, etc.)');
+      return;
+    }
+    
+    // Validate file size (e.g., max 50MB)
+    const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+    if (file.size > MAX_FILE_SIZE) {
+      alert('Image file is too large. Please use an image smaller than 50MB.');
+      return;
+    }
+    
+    // Clear existing annotations when loading new image
+    onClearAnnotations();
+    loadImage(file);
+    
+    // Reset file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
 
   const drawStroke = useCallback((ctx: CanvasRenderingContext2D, stroke: BrushStroke, color: string) => {
     if (stroke.points.length < 2) return;
+    
+    // Ensure consistent rendering settings
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    
     ctx.beginPath();
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
@@ -185,11 +464,22 @@ export default function AnnotationEditor({
     canvas.style.width = `${displayWidth}px`;
     canvas.style.height = `${displayHeight}px`;
     
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d", { 
+      alpha: true,
+      desynchronized: false,
+      willReadFrequently: false
+    });
     if (!ctx) return;
 
+    // Set consistent rendering settings across browsers
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    
+    // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(originalImage, 0, 0);
+    
+    // Draw image at full canvas size (ensures no cropping)
+    ctx.drawImage(originalImage, 0, 0, canvas.width, canvas.height);
 
     // Draw saved annotations (only non-completed, and only if showHighlights is on)
     if (showHighlights) {
@@ -608,59 +898,15 @@ export default function AnnotationEditor({
     }
   }, [isDraggingPopover, handlePopoverMouseMove, handlePopoverMouseUp]);
 
-  // Toolbar vertical dragging
-  const handleToolbarMouseDown = (e: React.MouseEvent) => {
-    // Don't drag if clicking on buttons or inputs
-    if ((e.target as HTMLElement).closest('button, input')) return;
-    e.preventDefault();
-    setIsDraggingToolbar(true);
-    // Store initial cursor Y and current toolbar offset
-    // toolbarY is offset from center (50vh), so we need to track the offset from cursor to toolbar center
-    const currentToolbarCenter = window.innerHeight / 2 + toolbarY;
-    setToolbarDragStart(e.clientY - currentToolbarCenter);
-  };
-
-  const handleToolbarMouseMove = useCallback((e: MouseEvent) => {
-    if (!isDraggingToolbar) return;
-    // Direct calculation: new toolbar center follows cursor, then convert to offset from 50vh
-    const newToolbarCenter = e.clientY - toolbarDragStart;
-    const newY = newToolbarCenter - (window.innerHeight / 2);
-    // Constrain to viewport
-    const maxY = window.innerHeight / 2 - 100;
-    const minY = -window.innerHeight / 2 + 100;
-    setToolbarY(Math.max(minY, Math.min(maxY, newY)));
-  }, [isDraggingToolbar, toolbarDragStart]);
-
-  const handleToolbarMouseUp = useCallback(() => {
-    setIsDraggingToolbar(false);
-  }, []);
-
-  useEffect(() => {
-    if (isDraggingToolbar) {
-      window.addEventListener('mousemove', handleToolbarMouseMove);
-      window.addEventListener('mouseup', handleToolbarMouseUp);
-      return () => {
-        window.removeEventListener('mousemove', handleToolbarMouseMove);
-        window.removeEventListener('mouseup', handleToolbarMouseUp);
-      };
-    }
-  }, [isDraggingToolbar, handleToolbarMouseMove, handleToolbarMouseUp]);
 
   return (
     <div className="flex flex-col h-full w-full relative bg-neutral-900">
-            {/* Toolbar - draggable vertically */}
-            <div 
-              className={`fixed top-1/2 right-4 z-50 select-none ${isDraggingToolbar ? 'cursor-grabbing' : 'cursor-grab'}`}
-              style={{ 
-                transform: `translateY(calc(-50% + ${toolbarY}px))`,
-                transition: isDraggingToolbar ? 'none' : 'transform 0.2s ease-out'
-              }}
-              onMouseDown={handleToolbarMouseDown}
-            >
-              <div className="relative flex items-center">
+            {/* Toolbar */}
+            <div className="fixed top-1/2 -translate-y-1/2 right-4 z-50">
+              <div className="flex items-center gap-3">
                 {/* Brush Settings Panel - click brush button to toggle */}
                 {activeTool === 'brush' && brushSettingsVisible && (
-                  <div className="relative flex flex-col items-center gap-0 bg-black/80 backdrop-blur-sm rounded-full px-0 py-1 shadow-lg transition-all duration-300 ease-out mr-3">
+                  <div className="flex flex-col items-center gap-0 bg-black/80 backdrop-blur-sm rounded-full px-0 py-1 shadow-lg transition-all duration-300 ease-out">
                     {/* Brush Size */}
                     <div className="flex flex-col items-center gap-0">
                       <span className="text-[8px] font-mono text-white/50">SIZE</span>
@@ -741,11 +987,25 @@ export default function AnnotationEditor({
         {!originalImage ? (
           <div className="text-white/50 text-sm">Loading image...</div>
         ) : (
-          <canvas
-            ref={canvasRef}
-            onMouseDown={handleMouseDown}
-            className="cursor-crosshair"
-          />
+          <div
+            ref={wrapperRef}
+            style={{
+              transform: `translate3d(${transform.x}px, ${transform.y}px, 0) scale(${transform.scale})`,
+              transition: isPanning ? 'none' : 'transform 0.5s cubic-bezier(0.16, 1, 0.3, 1)',
+              transformOrigin: 'center center',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              touchAction: 'none',
+              cursor: isPanning ? 'grabbing' : 'crosshair'
+            }}
+          >
+            <canvas
+              ref={canvasRef}
+              onMouseDown={handleMouseDown}
+              className="cursor-crosshair"
+            />
+          </div>
         )}
 
         {/* Annotation Input Popover */}
