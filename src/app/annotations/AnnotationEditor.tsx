@@ -123,44 +123,23 @@ export default function AnnotationEditor({
   const getBounds = (currentScale: number) => {
     if (!containerRef.current || !canvasRef.current) return { minX: 0, maxX: 0, minY: 0, maxY: 0 };
     
-    const container = containerRef.current.getBoundingClientRect();
-    // We need the dimensions of the canvas as it is displayed (the "fitted" size)
-    // redrawCanvas sets the style.width/height, so we can use that.
-    // However, during a transform, getBoundingClientRect on canvas includes the transform.
+    // Use clientWidth/Height to avoid layout thrashing (reflow)
+    const containerWidth = containerRef.current.clientWidth;
+    const containerHeight = containerRef.current.clientHeight;
+    
     // We need the 'base' fitted size.
-    // Since we wrap the canvas in a div and transform that div, the canvas's own style.width/height 
-    // (set by redrawCanvas) remains the "base" size (scale=1).
     let canvasBaseWidth = parseFloat(canvasRef.current.style.width);
     let canvasBaseHeight = parseFloat(canvasRef.current.style.height);
 
-    // Fallback if style is not set yet (e.g. initial render)
+    // Fallback if style is not set yet
     if (isNaN(canvasBaseWidth)) canvasBaseWidth = canvasRef.current.width;
     if (isNaN(canvasBaseHeight)) canvasBaseHeight = canvasRef.current.height;
 
     const scaledWidth = canvasBaseWidth * currentScale;
     const scaledHeight = canvasBaseHeight * currentScale;
-
-    // Calculate bounds to keep image somewhat in view
-    // Allow panning until the edge of the image hits the center of the screen? 
-    // Or stricter: image edges cannot go too far inside the container.
     
-    // Let's implement: Image cannot be panned completely out of view.
-    // At least some margin must remain visible.
-
-    // If image is smaller than container, center it (restrict pan to 0 usually, but we allow elastic)
-    // If image is larger, allow panning to edges.
-    
-    // Simple logic: The transformed center of the image shouldn't go too far.
-    // Let's use the edges.
-    
-    const overflowX = Math.max(0, (scaledWidth - container.width) / 2);
-    const overflowY = Math.max(0, (scaledHeight - container.height) / 2);
-    
-    // If scaled image < container, it's centered by default logic if x/y=0 (assuming we handle centering)
-    // But our transform origin is 0,0 (top-left of wrapper). 
-    // AND the canvas is normally centered by flexbox in the container.
-    // Wait, redrawCanvas logic sets size, but flexbox centers it: "flex items-center justify-center".
-    // So (0,0) transform means "centered".
+    const overflowX = Math.max(0, (scaledWidth - containerWidth) / 2);
+    const overflowY = Math.max(0, (scaledHeight - containerHeight) / 2);
     
     return {
       minX: -overflowX,
@@ -179,7 +158,7 @@ export default function AnnotationEditor({
       e.preventDefault();
       
       const MAX_OVERSHOOT = 200; // Max pixels past the edge
-      const MIN_ELASTIC_SCALE = 0.5; // Allow zooming out a bit
+      const MIN_ELASTIC_SCALE = 0.5; // Allow zooming out
       const MAX_ELASTIC_SCALE = 5.0; // Max zoom
 
       // Detect Zoom (Ctrl+Wheel or Pinch)
@@ -216,23 +195,16 @@ export default function AnnotationEditor({
           if (prev.y > bounds.maxY) currentOvershootY = prev.y - bounds.maxY;
           if (prev.y < bounds.minY) currentOvershootY = bounds.minY - prev.y;
 
-          // Apply resistance based on overshoot
-          // If we are pushing OUTWARDS (increasing overshoot), apply resistance
-          // If we are pushing INWARDS (decreasing overshoot), allow full speed
-          
+          // Apply resistance
           const resistanceX = Math.max(0, 1 - (currentOvershootX / MAX_OVERSHOOT));
           const resistanceY = Math.max(0, 1 - (currentOvershootY / MAX_OVERSHOOT));
 
-          // Check direction relative to center
-          // if prev.x > maxX (right side), and dx > 0 (moving right), apply resistance
           if (prev.x > bounds.maxX && dx > 0) dx *= resistanceX;
           if (prev.x < bounds.minX && dx < 0) dx *= resistanceX;
           
           if (prev.y > bounds.maxY && dy > 0) dy *= resistanceY;
           if (prev.y < bounds.minY && dy < 0) dy *= resistanceY;
 
-          // If inside bounds, or moving back towards center, no resistance (factor = 1)
-          
           return {
             ...prev,
             x: prev.x + dx,
@@ -251,8 +223,14 @@ export default function AnnotationEditor({
         setTransform(prev => {
           // Snap scale
           let targetScale = prev.scale;
-          if (targetScale < 1) targetScale = 1; 
-          if (targetScale > 3) targetScale = 3;
+          // Allow zooming out down to 0.7 without snapping back to 1. 
+          // Only snap up if it's extremely small (below 0.5).
+          // Actually, we clamped interaction to 0.5. 
+          // So we can essentially just leave it, or maybe snap to 0.75 if it's between 0.5 and 0.75?
+          // The user wants "a little bit of area where i can zoom out".
+          // Let's set resting min to 0.5.
+          if (targetScale < 0.5) targetScale = 0.5; 
+          if (targetScale > 5) targetScale = 5;
           
           const finalBounds = getBounds(targetScale);
           
@@ -260,15 +238,11 @@ export default function AnnotationEditor({
           let targetY = prev.y;
           
           // Clamp Pan
-          if (targetScale === 1) {
-            targetX = 0;
-            targetY = 0;
-          } else {
-            if (targetX < finalBounds.minX) targetX = finalBounds.minX;
-            if (targetX > finalBounds.maxX) targetX = finalBounds.maxX;
-            if (targetY < finalBounds.minY) targetY = finalBounds.minY;
-            if (targetY > finalBounds.maxY) targetY = finalBounds.maxY;
-          }
+          // If image is smaller than container (finalBounds.minX/maxX are 0), this will center it.
+          if (targetX < finalBounds.minX) targetX = finalBounds.minX;
+          if (targetX > finalBounds.maxX) targetX = finalBounds.maxX;
+          if (targetY < finalBounds.minY) targetY = finalBounds.minY;
+          if (targetY > finalBounds.maxY) targetY = finalBounds.maxY;
           
           return { x: targetX, y: targetY, scale: targetScale };
         });
