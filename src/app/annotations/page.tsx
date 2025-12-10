@@ -37,9 +37,13 @@ export default function AnnotationsPage() {
     }
   }, []);
 
-  const handleAddAnnotation = (newAnnotation: Annotation) => {
+  const handleAddAnnotation = React.useCallback((newAnnotation: Annotation) => {
     setAnnotations(prev => [...prev, newAnnotation]);
-  };
+  }, []);
+
+  const handleClearAnnotations = React.useCallback(() => {
+    setAnnotations([]);
+  }, []);
 
   const handleMarkComplete = (id: string) => {
     setAnnotations(prev => prev.map(a =>
@@ -276,7 +280,7 @@ export default function AnnotationsPage() {
         <AnnotationEditor
           annotations={annotations}
           onAddAnnotation={handleAddAnnotation}
-          onClearAnnotations={() => setAnnotations([])}
+          onClearAnnotations={handleClearAnnotations}
           selectedAnnotationId={selectedId}
           onSelectAnnotation={setSelectedId}
           panelOpen={panelOpen}

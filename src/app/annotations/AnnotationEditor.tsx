@@ -58,7 +58,7 @@ function isPointInRect(point: Point, rect: RectHighlight): boolean {
          point.y <= rect.y + rect.height;
 }
 
-export default function AnnotationEditor({ 
+const AnnotationEditor = ({ 
   annotations, 
   onAddAnnotation,
   onClearAnnotations,
@@ -66,19 +66,22 @@ export default function AnnotationEditor({
   onSelectAnnotation,
   panelOpen,
   onViewChange
-}: AnnotationEditorProps) {
+}: AnnotationEditorProps) => {
   const [originalImage, setOriginalImage] = useState<HTMLImageElement | null>(null);
   
   // Tool state
   const [activeTool, setActiveTool] = useState<Tool>('select');
   const [brushSize, setBrushSize] = useState(20);
-  const [brushOpacity, setBrushOpacity] = useState(0.4);
+  const [brushOpacity, setBrushOpacity] = useState(1.0);
   const [brushSettingsVisible, setBrushSettingsVisible] = useState(true);
   
   // View state
   const [showHighlights, setShowHighlights] = useState(true);
   const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
   const [isPanning, setIsPanning] = useState(false);
+  
+  // Use a ref to track transform for high-performance updates without re-renders
+  const transformRef = useRef({ x: 0, y: 0, scale: 1 });
   
   // Drawing state
   const [isDrawing, setIsDrawing] = useState(false);
@@ -104,6 +107,7 @@ export default function AnnotationEditor({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const wheelTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const rafRef = useRef<number | null>(null);
 
   // Maximum canvas dimensions to prevent memory issues
   // Most browsers can handle up to ~16,384px, but we'll be conservative
@@ -157,95 +161,108 @@ export default function AnnotationEditor({
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       
-      const MAX_OVERSHOOT = 200; // Max pixels past the edge
-      const MIN_ELASTIC_SCALE = 0.5; // Allow zooming out
-      const MAX_ELASTIC_SCALE = 5.0; // Max zoom
+      const MAX_OVERSHOOT = 600; // Even softer, deeper elastic zone
+      const MIN_ELASTIC_SCALE = 0.5;
+      const MAX_ELASTIC_SCALE = 5.0;
 
-      // Detect Zoom (Ctrl+Wheel or Pinch)
+      // 1. Update Transform Ref (Source of Truth during interaction)
+      const prev = transformRef.current;
+      const next = { ...prev };
+
       if (e.ctrlKey || e.metaKey) {
         // Zoom
-        const zoomSensitivity = 0.002;
+        const zoomSensitivity = 0.003; // More responsive zoom
         const delta = -e.deltaY * zoomSensitivity;
+        let newScale = prev.scale + delta;
         
-        setTransform(prev => {
-          let newScale = prev.scale + delta;
-          
-          // Hard clamp
-          if (newScale < MIN_ELASTIC_SCALE) newScale = MIN_ELASTIC_SCALE;
-          if (newScale > MAX_ELASTIC_SCALE) newScale = MAX_ELASTIC_SCALE;
-          
-          return {
-            ...prev,
-            scale: newScale
-          };
-        });
+        // Hard clamp
+        if (newScale < MIN_ELASTIC_SCALE) newScale = MIN_ELASTIC_SCALE;
+        if (newScale > MAX_ELASTIC_SCALE) newScale = MAX_ELASTIC_SCALE;
+        
+        next.scale = newScale;
       } else {
         // Pan
-        setTransform(prev => {
-          const bounds = getBounds(prev.scale);
-          let dx = -e.deltaX;
-          let dy = -e.deltaY;
-          
-          // Calculate current overshoot
-          let currentOvershootX = 0;
-          if (prev.x > bounds.maxX) currentOvershootX = prev.x - bounds.maxX;
-          if (prev.x < bounds.minX) currentOvershootX = bounds.minX - prev.x;
-          
-          let currentOvershootY = 0;
-          if (prev.y > bounds.maxY) currentOvershootY = prev.y - bounds.maxY;
-          if (prev.y < bounds.minY) currentOvershootY = bounds.minY - prev.y;
+        const bounds = getBounds(prev.scale);
+        
+        // Make panning feel faster/more direct (1.5x multiplier)
+        let dx = -e.deltaX * 1.5;
+        let dy = -e.deltaY * 1.5;
+        
+        let currentOvershootX = 0;
+        if (prev.x > bounds.maxX) currentOvershootX = prev.x - bounds.maxX;
+        if (prev.x < bounds.minX) currentOvershootX = bounds.minX - prev.x;
+        
+        let currentOvershootY = 0;
+        if (prev.y > bounds.maxY) currentOvershootY = prev.y - bounds.maxY;
+        if (prev.y < bounds.minY) currentOvershootY = bounds.minY - prev.y;
 
-          // Apply resistance
-          const resistanceX = Math.max(0, 1 - (currentOvershootX / MAX_OVERSHOOT));
-          const resistanceY = Math.max(0, 1 - (currentOvershootY / MAX_OVERSHOOT));
+        // Softer resistance curve: starts very low, ramps up gently
+        // Using power of 3 for very "stretchy" feel
+        const calcResistance = (overshoot: number) => {
+           const ratio = Math.min(1, overshoot / MAX_OVERSHOOT);
+           // 1 - ratio^3 means resistance kicks in slowly then hard at the end
+           return Math.max(0, 1 - Math.pow(ratio, 3));
+        };
 
-          if (prev.x > bounds.maxX && dx > 0) dx *= resistanceX;
-          if (prev.x < bounds.minX && dx < 0) dx *= resistanceX;
-          
-          if (prev.y > bounds.maxY && dy > 0) dy *= resistanceY;
-          if (prev.y < bounds.minY && dy < 0) dy *= resistanceY;
+        const resistanceX = calcResistance(currentOvershootX);
+        const resistanceY = calcResistance(currentOvershootY);
 
-          return {
-            ...prev,
-            x: prev.x + dx,
-            y: prev.y + dy
-          };
-        });
+        if (prev.x > bounds.maxX && dx > 0) dx *= resistanceX;
+        if (prev.x < bounds.minX && dx < 0) dx *= resistanceX;
+        if (prev.y > bounds.maxY && dy > 0) dy *= resistanceY;
+        if (prev.y < bounds.minY && dy < 0) dy *= resistanceY;
+
+        next.x += dx;
+        next.y += dy;
       }
-      
-      setIsPanning(true);
-      if (onViewChange) onViewChange();
 
-      // Debounce snap-back
+      // 2. Apply Immediately to DOM (Bypassing React Render)
+      transformRef.current = next;
+      if (wrapperRef.current) {
+        wrapperRef.current.style.transition = 'none';
+        wrapperRef.current.style.transform = `translate3d(${next.x}px, ${next.y}px, 0) scale(${next.scale})`;
+        wrapperRef.current.style.cursor = 'grabbing';
+      }
+
+      // 3. Notify Parent (Throttled)
+      if (onViewChange) {
+        if (!rafRef.current) {
+          rafRef.current = requestAnimationFrame(() => {
+            onViewChange();
+            rafRef.current = null;
+          });
+        }
+      }
+
+      // 4. Debounce Snap-Back / Sync State
       if (wheelTimeoutRef.current) clearTimeout(wheelTimeoutRef.current);
       wheelTimeoutRef.current = setTimeout(() => {
-        setIsPanning(false);
-        setTransform(prev => {
-          // Snap scale
-          let targetScale = prev.scale;
-          // Allow zooming out down to 0.7 without snapping back to 1. 
-          // Only snap up if it's extremely small (below 0.5).
-          // Actually, we clamped interaction to 0.5. 
-          // So we can essentially just leave it, or maybe snap to 0.75 if it's between 0.5 and 0.75?
-          // The user wants "a little bit of area where i can zoom out".
-          // Let's set resting min to 0.5.
-          if (targetScale < 0.5) targetScale = 0.5; 
-          if (targetScale > 5) targetScale = 5;
-          
-          const finalBounds = getBounds(targetScale);
-          
-          let targetX = prev.x;
-          let targetY = prev.y;
-          
-          // Clamp Pan
-          // If image is smaller than container (finalBounds.minX/maxX are 0), this will center it.
-          if (targetX < finalBounds.minX) targetX = finalBounds.minX;
-          if (targetX > finalBounds.maxX) targetX = finalBounds.maxX;
-          if (targetY < finalBounds.minY) targetY = finalBounds.minY;
-          if (targetY > finalBounds.maxY) targetY = finalBounds.maxY;
-          
-          return { x: targetX, y: targetY, scale: targetScale };
-        });
+        // Calculate Snap Targets
+        let targetScale = next.scale;
+        if (targetScale < 0.5) targetScale = 0.5;
+        if (targetScale > 5) targetScale = 5;
+        
+        const finalBounds = getBounds(targetScale);
+        let targetX = next.x;
+        let targetY = next.y;
+        
+        if (targetX < finalBounds.minX) targetX = finalBounds.minX;
+        if (targetX > finalBounds.maxX) targetX = finalBounds.maxX;
+        if (targetY < finalBounds.minY) targetY = finalBounds.minY;
+        if (targetY > finalBounds.maxY) targetY = finalBounds.maxY;
+
+        // Update Ref to target
+        const snappedState = { x: targetX, y: targetY, scale: targetScale };
+        transformRef.current = snappedState;
+
+        // Sync React State (Triggers Render + CSS Transition)
+        setTransform(snappedState);
+        setIsPanning(false); // This re-enables the CSS transition in render
+        if (wrapperRef.current) {
+             wrapperRef.current.style.cursor = 'crosshair';
+             // We don't need to manually set style here, React render will take over
+             // with the correct transform and transition enabled.
+        }
       }, 500);
     };
 
@@ -944,7 +961,7 @@ export default function AnnotationEditor({
                   {/* Eye Toggle - show/hide highlights */}
                   <button
                     onClick={() => setShowHighlights(!showHighlights)}
-                    className={`p-2 rounded-full transition ${showHighlights ? 'text-white/70 hover:text-white' : 'bg-white/10 text-white'}`}
+                    className={`p-2 rounded-full transition ${showHighlights ? 'text-white/70 hover:text-white' : 'bg-red-500/20 text-red-500 hover:text-red-400'}`}
                     title={showHighlights ? "Hide Highlights" : "Show Highlights"}
                   >
                     {showHighlights ? <Eye size={18} /> : <EyeOff size={18} />}
@@ -1043,4 +1060,6 @@ export default function AnnotationEditor({
     </div>
   );
 }
+
+export default React.memo(AnnotationEditor);
 
