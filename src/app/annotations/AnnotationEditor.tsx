@@ -200,14 +200,15 @@ const AnnotationEditor = ({
         if (prev.y > bounds.maxY) currentOvershootY = prev.y - bounds.maxY;
         if (prev.y < bounds.minY) currentOvershootY = bounds.minY - prev.y;
 
-        // LINEAR RESISTANCE
-        // Feel: Like a real rubber band. Tension increases evenly as you pull.
+        // QUADRATIC RESISTANCE (Heavy Tension)
+        // Feel: Speed drops off rapidly as you pull.
         // Ratio 0 (at border) -> 1.0 (Full speed)
-        // Ratio 0.5 (halfway) -> 0.5 (Half speed / Heavy tension)
-        // Ratio 1.0 (max)     -> 0.0 (Stopped)
+        // Ratio 0.5 (halfway) -> 0.25 (Heavy tension)
+        // Ratio 0.8 (near end)-> 0.04 (Almost wall)
         const calcResistance = (overshoot: number) => {
            const ratio = Math.min(1, overshoot / MAX_OVERSHOOT);
-           return Math.max(0, 1 - ratio);
+           const factor = 1 - ratio;
+           return factor * factor; // Quadratic curve
         };
 
         const resistanceX = calcResistance(currentOvershootX);
@@ -273,34 +274,30 @@ const AnnotationEditor = ({
 
         if (isOutOfBounds && wrapperRef.current) {
           // MANUAL ANIMATION STRATEGY
-          // We handle the animation entirely outside of React to ensure it's buttery smooth
-          // and starts exactly from the current position.
-
           // 1. Enable transition on DOM (Faster 0.4s spring)
           wrapperRef.current.style.transition = 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)';
           
-          // 2. Force Reflow to ensure browser registers the transition start point
+          // 2. Force Reflow
           // eslint-disable-next-line @typescript-eslint/no-unused-vars
           const _ = wrapperRef.current.offsetHeight; 
           
           // 3. Set Target Transform
           wrapperRef.current.style.transform = `translate3d(${targetX}px, ${targetY}px, 0) scale(${targetScale})`;
           
-          // 4. Update Source of Truth immediately so any new interaction starts from target
+          // 4. Update Source of Truth
           transformRef.current = snappedState;
 
-          // 5. Wait for animation to finish, then sync React state
+          // 5. Wait for animation
           snapTimeoutRef.current = setTimeout(() => {
-            setIsPanning(false); // Re-enables React control
+            setIsPanning(false);
             setTransform(snappedState);
-          }, 400); // Match transition duration
+          }, 400); 
         } else {
-          // Safe inside bounds, just sync silent
           transformRef.current = current; 
           setIsPanning(false);
           setTransform(current);
         }
-      }, 80); // Fast debounce (80ms) for instant return feel
+      }, 40); // Ultra-fast debounce (40ms) for practically instant return
     };
 
     container.addEventListener('wheel', onWheel, { passive: false });
