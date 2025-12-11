@@ -238,30 +238,48 @@ const AnnotationEditor = ({
       if (wheelTimeoutRef.current) clearTimeout(wheelTimeoutRef.current);
       wheelTimeoutRef.current = setTimeout(() => {
         // Calculate Snap Targets
-        let targetScale = next.scale;
+        const current = transformRef.current;
+        let targetScale = current.scale;
+        
+        // Snap scale logic
         if (targetScale < 0.5) targetScale = 0.5;
         if (targetScale > 5) targetScale = 5;
         
         const finalBounds = getBounds(targetScale);
-        let targetX = next.x;
-        let targetY = next.y;
+        let targetX = current.x;
+        let targetY = current.y;
         
+        // Clamp Pan
         if (targetX < finalBounds.minX) targetX = finalBounds.minX;
         if (targetX > finalBounds.maxX) targetX = finalBounds.maxX;
         if (targetY < finalBounds.minY) targetY = finalBounds.minY;
         if (targetY > finalBounds.maxY) targetY = finalBounds.maxY;
 
-        // Update Ref to target
         const snappedState = { x: targetX, y: targetY, scale: targetScale };
-        transformRef.current = snappedState;
+        
+        // Check if we actually need to move (are we out of bounds?)
+        const isOutOfBounds = 
+          Math.abs(targetX - current.x) > 0.1 || 
+          Math.abs(targetY - current.y) > 0.1 || 
+          Math.abs(targetScale - current.scale) > 0.001;
 
-        // Sync React State (Triggers Render + CSS Transition)
-        setTransform(snappedState);
-        setIsPanning(false); // This re-enables the CSS transition in render
-        if (wrapperRef.current) {
-             wrapperRef.current.style.cursor = 'crosshair';
-             // We don't need to manually set style here, React render will take over
-             // with the correct transform and transition enabled.
+        if (isOutOfBounds) {
+          // We are out of bounds. We need to transition to the snapped state.
+          // 1. Sync the Ref to the TARGET state so interactions starting *during* the transition work from target.
+          //    (Actually, keeping it at current is safer, but we want to eventually be at target).
+          transformRef.current = snappedState;
+          
+          // 2. Trigger React State update.
+          //    This will re-render, enabling the CSS transition and setting the transform style to the TARGET.
+          //    The browser will interpolate from the *current* computed style (which we set via Ref) to this new style.
+          setIsPanning(false);
+          setTransform(snappedState);
+        } else {
+          // We are safely inside bounds. Just sync state silently.
+          // No visual change needed, but we want to turn off 'grabbing' cursor and re-enable transitions for next time.
+          transformRef.current = current; // Should already be equal
+          setIsPanning(false);
+          setTransform(current);
         }
       }, 500);
     };
