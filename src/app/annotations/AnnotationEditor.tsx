@@ -143,8 +143,9 @@ const AnnotationEditor = ({
     const scaledWidth = canvasBaseWidth * currentScale;
     const scaledHeight = canvasBaseHeight * currentScale;
     
-    // Standard overflow (image fits exactly)
-    // Resistance starts immediately when image edge hits screen edge.
+    // Strict overflow: Resistance starts immediately at the image edge.
+    // If the image is wider than container, overflow is positive.
+    // If image is narrower, overflow is 0 (centered).
     const overflowX = Math.max(0, (scaledWidth - containerWidth) / 2);
     const overflowY = Math.max(0, (scaledHeight - containerHeight) / 2);
     
