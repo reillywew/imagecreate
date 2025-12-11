@@ -890,6 +890,13 @@ const AnnotationEditor = ({
   }, [isDraggingPopover, handlePopoverMouseMove, handlePopoverMouseUp]);
 
 
+  // Sync React State to DOM (when not interacting)
+  React.useLayoutEffect(() => {
+    if (wrapperRef.current && !isPanning) {
+      wrapperRef.current.style.transform = `translate3d(${transform.x}px, ${transform.y}px, 0) scale(${transform.scale})`;
+    }
+  }, [transform, isPanning]);
+
   return (
     <div className="flex flex-col h-full w-full relative bg-neutral-900">
             {/* Toolbar */}
@@ -981,7 +988,6 @@ const AnnotationEditor = ({
           <div
             ref={wrapperRef}
             style={{
-              transform: `translate3d(${transform.x}px, ${transform.y}px, 0) scale(${transform.scale})`,
               transition: isPanning ? 'none' : 'transform 0.5s cubic-bezier(0.16, 1, 0.3, 1)',
               transformOrigin: 'center center',
               display: 'flex',
