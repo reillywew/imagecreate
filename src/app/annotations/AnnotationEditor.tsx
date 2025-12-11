@@ -165,7 +165,7 @@ const AnnotationEditor = ({
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       
-      const MAX_OVERSHOOT = 800; // Deep elastic zone (messaging app feel)
+      const MAX_OVERSHOOT = 350; // Reduced overshoot to prevent "deep" pulls
       const MIN_ELASTIC_SCALE = 0.5;
       const MAX_ELASTIC_SCALE = 5.0;
 
@@ -188,9 +188,9 @@ const AnnotationEditor = ({
         // Pan
         const bounds = getBounds(prev.scale);
         
-        // Make panning feel faster/more direct (1.5x multiplier)
-        let dx = -e.deltaX * 1.5;
-        let dy = -e.deltaY * 1.5;
+        // 1.2x sensitivity
+        let dx = -e.deltaX * 1.2;
+        let dy = -e.deltaY * 1.2;
         
         let currentOvershootX = 0;
         if (prev.x > bounds.maxX) currentOvershootX = prev.x - bounds.maxX;
@@ -200,15 +200,13 @@ const AnnotationEditor = ({
         if (prev.y > bounds.maxY) currentOvershootY = prev.y - bounds.maxY;
         if (prev.y < bounds.minY) currentOvershootY = bounds.minY - prev.y;
 
-        // QUADRATIC RESISTANCE (Heavy Tension)
-        // Feel: Speed drops off rapidly as you pull.
-        // Ratio 0 (at border) -> 1.0 (Full speed)
-        // Ratio 0.5 (halfway) -> 0.25 (Heavy tension)
-        // Ratio 0.8 (near end)-> 0.04 (Almost wall)
+        // QUADRATIC RESISTANCE (Re-introduced)
+        // Helps "chill out" the elasticity by making it harder to reach the limit.
+        // Prevents the user from accidentally flinging the image 800px off screen.
         const calcResistance = (overshoot: number) => {
            const ratio = Math.min(1, overshoot / MAX_OVERSHOOT);
            const factor = 1 - ratio;
-           return factor * factor; // Quadratic curve
+           return factor * factor;
         };
 
         const resistanceX = calcResistance(currentOvershootX);
