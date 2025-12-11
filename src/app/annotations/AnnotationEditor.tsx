@@ -143,8 +143,18 @@ const AnnotationEditor = ({
     const scaledWidth = canvasBaseWidth * currentScale;
     const scaledHeight = canvasBaseHeight * currentScale;
     
-    const overflowX = Math.max(0, (scaledWidth - containerWidth) / 2);
-    const overflowY = Math.max(0, (scaledHeight - containerHeight) / 2);
+    // Standard overflow (image fits exactly)
+    let overflowX = Math.max(0, (scaledWidth - containerWidth) / 2);
+    let overflowY = Math.max(0, (scaledHeight - containerHeight) / 2);
+
+    // Add extra margin to bounds ("larger borders")
+    // This allows the image to be panned partially off-screen before resistance starts.
+    // 30% of container size extra space.
+    const EXTRA_MARGIN_X = containerWidth * 0.3;
+    const EXTRA_MARGIN_Y = containerHeight * 0.3;
+
+    overflowX += EXTRA_MARGIN_X;
+    overflowY += EXTRA_MARGIN_Y;
     
     return {
       minX: -overflowX,
@@ -162,7 +172,7 @@ const AnnotationEditor = ({
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       
-      const MAX_OVERSHOOT = 600; // Even softer, deeper elastic zone
+      const MAX_OVERSHOOT = 500; // Limit for the elastic zone
       const MIN_ELASTIC_SCALE = 0.5;
       const MAX_ELASTIC_SCALE = 5.0;
 
@@ -172,7 +182,7 @@ const AnnotationEditor = ({
 
       if (e.ctrlKey || e.metaKey) {
         // Zoom
-        const zoomSensitivity = 0.003; // More responsive zoom
+        const zoomSensitivity = 0.003;
         const delta = -e.deltaY * zoomSensitivity;
         let newScale = prev.scale + delta;
         
@@ -197,12 +207,14 @@ const AnnotationEditor = ({
         if (prev.y > bounds.maxY) currentOvershootY = prev.y - bounds.maxY;
         if (prev.y < bounds.minY) currentOvershootY = bounds.minY - prev.y;
 
-        // Softer resistance curve: starts very low, ramps up gently
-        // Using power of 3 for very "stretchy" feel
+        // LINEAR RESISTANCE
+        // Feel: Like a real rubber band. Tension increases evenly as you pull.
+        // Ratio 0 (at border) -> 1.0 (Full speed)
+        // Ratio 0.5 (halfway) -> 0.5 (Half speed / Heavy tension)
+        // Ratio 1.0 (max)     -> 0.0 (Stopped)
         const calcResistance = (overshoot: number) => {
            const ratio = Math.min(1, overshoot / MAX_OVERSHOOT);
-           // 1 - ratio^3 means resistance kicks in slowly then hard at the end
-           return Math.max(0, 1 - Math.pow(ratio, 3));
+           return Math.max(0, 1 - ratio);
         };
 
         const resistanceX = calcResistance(currentOvershootX);
