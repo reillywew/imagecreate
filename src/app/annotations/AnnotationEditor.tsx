@@ -109,6 +109,7 @@ const AnnotationEditor = ({
   const wheelTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const snapTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const rafRef = useRef<number | null>(null);
+  const isSnappingRef = useRef(false); // Protects snap animation from momentum
 
   // Maximum canvas dimensions to prevent memory issues
   // Most browsers can handle up to ~16,384px, but we'll be conservative
@@ -164,6 +165,19 @@ const AnnotationEditor = ({
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
+
+      // If we are currently snapping back, ignore small momentum events
+      // to prevent the animation from being cancelled abruptly.
+      // Only interrupt if the user makes a significant new gesture.
+      if (isSnappingRef.current) {
+        const magnitude = Math.abs(e.deltaX) + Math.abs(e.deltaY);
+        // Threshold for "intentional interruption" vs "momentum tail"
+        if (magnitude < 30) return; 
+        
+        // If magnitude is high, user is taking control. Cancel snap.
+        isSnappingRef.current = false;
+        if (snapTimeoutRef.current) clearTimeout(snapTimeoutRef.current);
+      }
       
       const MAX_OVERSHOOT = 350; // Reduced overshoot to prevent "deep" pulls
       const MIN_ELASTIC_SCALE = 0.5;
@@ -285,9 +299,13 @@ const AnnotationEditor = ({
           
           // 4. Update Source of Truth
           transformRef.current = snappedState;
+          
+          // 5. Protect Animation
+          isSnappingRef.current = true;
 
-          // 5. Wait for animation
+          // 6. Wait for animation
           snapTimeoutRef.current = setTimeout(() => {
+            isSnappingRef.current = false;
             setIsPanning(false);
             setTransform(snappedState);
           }, 800); 
@@ -296,7 +314,7 @@ const AnnotationEditor = ({
           setIsPanning(false);
           setTransform(current);
         }
-      }, 40); // Ultra-fast debounce (40ms) for practically instant return
+      }, 60); // Slightly increased debounce (60ms) to ensure momentum settles
     };
 
     container.addEventListener('wheel', onWheel, { passive: false });
