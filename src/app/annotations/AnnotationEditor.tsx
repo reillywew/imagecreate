@@ -107,6 +107,7 @@ const AnnotationEditor = ({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const wheelTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const snapTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const rafRef = useRef<number | null>(null);
 
   // Maximum canvas dimensions to prevent memory issues
@@ -236,6 +237,8 @@ const AnnotationEditor = ({
 
       // 4. Debounce Snap-Back / Sync State
       if (wheelTimeoutRef.current) clearTimeout(wheelTimeoutRef.current);
+      if (snapTimeoutRef.current) clearTimeout(snapTimeoutRef.current);
+
       wheelTimeoutRef.current = setTimeout(() => {
         // Calculate Snap Targets
         const current = transformRef.current;
@@ -263,21 +266,32 @@ const AnnotationEditor = ({
           Math.abs(targetY - current.y) > 0.1 || 
           Math.abs(targetScale - current.scale) > 0.001;
 
-        if (isOutOfBounds) {
-          // We are out of bounds. We need to transition to the snapped state.
-          // 1. Sync the Ref to the TARGET state so interactions starting *during* the transition work from target.
-          //    (Actually, keeping it at current is safer, but we want to eventually be at target).
-          transformRef.current = snappedState;
+        if (isOutOfBounds && wrapperRef.current) {
+          // MANUAL ANIMATION STRATEGY
+          // We handle the animation entirely outside of React to ensure it's buttery smooth
+          // and starts exactly from the current position.
+
+          // 1. Enable transition on DOM
+          wrapperRef.current.style.transition = 'transform 0.5s cubic-bezier(0.16, 1, 0.3, 1)';
           
-          // 2. Trigger React State update.
-          //    This will re-render, enabling the CSS transition and setting the transform style to the TARGET.
-          //    The browser will interpolate from the *current* computed style (which we set via Ref) to this new style.
-          setIsPanning(false);
-          setTransform(snappedState);
+          // 2. Force Reflow to ensure browser registers the transition start point
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const _ = wrapperRef.current.offsetHeight; 
+          
+          // 3. Set Target Transform
+          wrapperRef.current.style.transform = `translate3d(${targetX}px, ${targetY}px, 0) scale(${targetScale})`;
+          
+          // 4. Update Source of Truth immediately so any new interaction starts from target
+          transformRef.current = snappedState;
+
+          // 5. Wait for animation to finish, then sync React state
+          snapTimeoutRef.current = setTimeout(() => {
+            setIsPanning(false); // Re-enables React control
+            setTransform(snappedState);
+          }, 500);
         } else {
-          // We are safely inside bounds. Just sync state silently.
-          // No visual change needed, but we want to turn off 'grabbing' cursor and re-enable transitions for next time.
-          transformRef.current = current; // Should already be equal
+          // Safe inside bounds, just sync silent
+          transformRef.current = current; 
           setIsPanning(false);
           setTransform(current);
         }
