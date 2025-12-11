@@ -274,8 +274,9 @@ const AnnotationEditor = ({
 
         if (isOutOfBounds && wrapperRef.current) {
           // MANUAL ANIMATION STRATEGY
-          // 1. Enable transition on DOM (Faster 0.4s spring)
-          wrapperRef.current.style.transition = 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)';
+          // 1. Enable transition on DOM (Slower, smoother spring - 0.8s)
+          // Using a gentler ease-out curve
+          wrapperRef.current.style.transition = 'transform 0.8s cubic-bezier(0.25, 1, 0.5, 1)';
           
           // 2. Force Reflow
           // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -291,7 +292,7 @@ const AnnotationEditor = ({
           snapTimeoutRef.current = setTimeout(() => {
             setIsPanning(false);
             setTransform(snappedState);
-          }, 400); 
+          }, 800); 
         } else {
           transformRef.current = current; 
           setIsPanning(false);
@@ -1022,7 +1023,7 @@ const AnnotationEditor = ({
           <div
             ref={wrapperRef}
             style={{
-              transition: isPanning ? 'none' : 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
+              transition: isPanning ? 'none' : 'transform 0.8s cubic-bezier(0.25, 1, 0.5, 1)',
               transformOrigin: 'center center',
               display: 'flex',
               alignItems: 'center',
