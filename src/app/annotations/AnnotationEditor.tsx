@@ -144,17 +144,9 @@ const AnnotationEditor = ({
     const scaledHeight = canvasBaseHeight * currentScale;
     
     // Standard overflow (image fits exactly)
-    let overflowX = Math.max(0, (scaledWidth - containerWidth) / 2);
-    let overflowY = Math.max(0, (scaledHeight - containerHeight) / 2);
-
-    // Add extra margin to bounds ("larger borders")
-    // This allows the image to be panned partially off-screen before resistance starts.
-    // 30% of container size extra space.
-    const EXTRA_MARGIN_X = containerWidth * 0.3;
-    const EXTRA_MARGIN_Y = containerHeight * 0.3;
-
-    overflowX += EXTRA_MARGIN_X;
-    overflowY += EXTRA_MARGIN_Y;
+    // Resistance starts immediately when image edge hits screen edge.
+    const overflowX = Math.max(0, (scaledWidth - containerWidth) / 2);
+    const overflowY = Math.max(0, (scaledHeight - containerHeight) / 2);
     
     return {
       minX: -overflowX,
@@ -172,7 +164,7 @@ const AnnotationEditor = ({
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       
-      const MAX_OVERSHOOT = 500; // Limit for the elastic zone
+      const MAX_OVERSHOOT = 800; // Deep elastic zone (messaging app feel)
       const MIN_ELASTIC_SCALE = 0.5;
       const MAX_ELASTIC_SCALE = 5.0;
 
