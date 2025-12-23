@@ -1,28 +1,55 @@
 "use client";
 
 import React, { useRef, useState, useEffect, useCallback, Suspense } from 'react';
-import { Download, FolderOpen } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
+import EditorToolbar from './EditorToolbar';
 
 // Default test image
 const DEFAULT_IMAGE = '/annotation/ChatGPT Image Nov 24, 2025, 03_40_33 PM.jpeg';
 
+// Photopea config - dark theme to match our UI
+const photopeaConfig = {
+  environment: {
+    theme: 2, // Dark theme
+    vmode: 1, // Single view
+  }
+};
+
+const photopeaUrl = `https://www.photopea.com#${encodeURIComponent(JSON.stringify(photopeaConfig))}`;
+
 function EditorContent() {
   const searchParams = useSearchParams();
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const [isLoaded, setIsLoaded] = useState(false);
-  const [imageLoaded, setImageLoaded] = useState(false);
+  const [isLoaded, setIsLoaded] = useState(false); // Iframe loaded
+  const [photopeaReady, setPhotopeaReady] = useState(false); // Photopea app ready
+  const [imageData, setImageData] = useState<ArrayBuffer | null>(null);
+  const [imageSent, setImageSent] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Get image from URL param or use default
   const imagePath = searchParams.get('image') || DEFAULT_IMAGE;
 
-  // Listen for messages from Photopea
+  // 1. Fetch image immediately on mount
+  useEffect(() => {
+    let active = true;
+    const fetchImage = async () => {
+      try {
+        const response = await fetch(imagePath);
+        const blob = await response.blob();
+        const buffer = await blob.arrayBuffer();
+        if (active) setImageData(buffer);
+      } catch (err) {
+        console.error('Failed to load image:', err);
+      }
+    };
+    fetchImage();
+    return () => { active = false; };
+  }, [imagePath]);
+
+  // 2. Listen for messages from Photopea
   useEffect(() => {
     const handleMessage = (e: MessageEvent) => {
-      // Photopea sends back data as ArrayBuffer or string
       if (e.source === iframeRef.current?.contentWindow) {
-        // Handle response from Photopea
         if (e.data instanceof ArrayBuffer) {
           // This is image data - could save it
           const blob = new Blob([e.data], { type: 'image/png' });
@@ -36,7 +63,8 @@ function EditorContent() {
           URL.revokeObjectURL(url);
         } else if (typeof e.data === 'string') {
           if (e.data === 'done') {
-            console.log('Photopea: Operation complete');
+            console.log('Photopea: Ready');
+            setPhotopeaReady(true);
           }
         }
       }
@@ -46,39 +74,21 @@ function EditorContent() {
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
-  // Auto-load image when Photopea is ready
+  // 3. Send image when both Photopea is ready AND Image Data is loaded
   useEffect(() => {
-    if (!isLoaded || imageLoaded) return;
+    if (photopeaReady && imageData && !imageSent && iframeRef.current?.contentWindow) {
+      // Send to Photopea
+      iframeRef.current.contentWindow.postMessage(imageData, '*');
+      setImageSent(true);
+    }
+  }, [photopeaReady, imageData, imageSent]);
 
-    const loadImage = async () => {
-      try {
-        // Fetch the image
-        const response = await fetch(imagePath);
-        const blob = await response.blob();
-        const arrayBuffer = await blob.arrayBuffer();
-        
-        // Send to Photopea
-        if (iframeRef.current?.contentWindow) {
-          iframeRef.current.contentWindow.postMessage(arrayBuffer, '*');
-          setImageLoaded(true);
-        }
-      } catch (err) {
-        console.error('Failed to load image:', err);
-      }
-    };
-
-    // Small delay to ensure Photopea is fully initialized
-    const timer = setTimeout(loadImage, 500);
-    return () => clearTimeout(timer);
-  }, [isLoaded, imageLoaded, imagePath]);
-
-  // Send image to Photopea
+  // Send new file (upload) to Photopea
   const sendImageToPhotopea = useCallback((file: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       const arrayBuffer = e.target?.result as ArrayBuffer;
       if (iframeRef.current?.contentWindow) {
-        // Open the file in Photopea
         iframeRef.current.contentWindow.postMessage(arrayBuffer, '*');
       }
     };
@@ -104,52 +114,14 @@ function EditorContent() {
     }
   };
 
-  // Photopea config - dark theme to match our UI
-  const photopeaConfig = {
-    environment: {
-      theme: 2, // Dark theme
-      vmode: 1, // Single view
-    }
-  };
-  
-  const photopeaUrl = `https://www.photopea.com#${encodeURIComponent(JSON.stringify(photopeaConfig))}`;
-
   return (
     <div className="flex flex-col h-screen w-full bg-neutral-900">
-      {/* Top Toolbar */}
-      <header className="h-12 border-b border-neutral-800 flex items-center justify-between px-4 bg-neutral-900 flex-shrink-0">
-        <div className="flex items-center gap-2">
-        </div>
-        
-        <div className="flex items-center gap-2">
-          {/* Open Image */}
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-2 px-3 py-1.5 text-xs text-white/80 hover:text-white hover:bg-white/10 rounded transition"
-          >
-            <FolderOpen size={14} />
-            Open
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*,.psd,.ai,.pdf,.svg"
-            onChange={handleFileUpload}
-            className="hidden"
-          />
-          
-          <div className="w-px h-4 bg-white/20" />
-          
-          {/* Export Options */}
-          <button
-            onClick={() => exportImage('png')}
-            className="flex items-center gap-2 px-3 py-1.5 text-xs bg-white text-black hover:bg-white/90 rounded transition font-medium"
-          >
-            <Download size={14} />
-            Export PNG
-          </button>
-        </div>
-      </header>
+      <EditorToolbar
+        fileInputRef={fileInputRef}
+        onOpenClick={() => fileInputRef.current?.click()}
+        onFileChange={handleFileUpload}
+        onExportPng={() => exportImage('png')}
+      />
 
       {/* Photopea Iframe */}
       <div className="flex-1 relative">

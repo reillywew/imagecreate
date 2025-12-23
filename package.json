@@ -3,10 +3,18 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint"
+    "dev": "cd apps/annotations && npx next dev",
+    "dev:annotations": "cd apps/annotations && npx next dev",
+    "dev:editor": "cd apps/editor && npx next dev",
+    "build": "cd apps/annotations && npx next build",
+    "build:annotations": "cd apps/annotations && npx next build",
+    "build:editor": "cd apps/editor && npx next build",
+    "start": "cd apps/annotations && npx next start",
+    "start:annotations": "cd apps/annotations && npx next start",
+    "start:editor": "cd apps/editor && npx next start",
+    "lint": "cd apps/annotations && npx eslint .",
+    "lint:annotations": "cd apps/annotations && npx eslint .",
+    "lint:editor": "cd apps/editor && npx eslint ."
   },
   "dependencies": {
     "clsx": "^2.1.1",
@@ -25,5 +33,8 @@
     "eslint-config-next": "16.0.8",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "optionalDependencies": {
+    "lightningcss-darwin-arm64": "^1.30.2"
   }
 }

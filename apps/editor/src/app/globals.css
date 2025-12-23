@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    overscroll-behavior: none;
+  }
+
+  body {
+    overscroll-behavior: none;
+    color: rgb(var(--foreground-rgb));
+    background: rgb(var(--background-rgb));
+    font-family: var(--font-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif), serif;
+  }
+
+  /* Canvas consistency across browsers */
+  canvas {
+    display: block;
+    image-rendering: auto;
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+    -ms-interpolation-mode: bicubic;
+  }
+}

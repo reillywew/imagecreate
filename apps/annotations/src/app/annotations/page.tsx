@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import AnnotationEditor from './AnnotationEditor';
 import AnnotationChat from './AnnotationChat';
+import AnnotationsPanelHeader from './AnnotationsPanelHeader';
 import { Annotation, Reply } from './types';
 // localStorage key for persistence
 const ANNOTATIONS_STORAGE_KEY = 'annotation-tool-data';
@@ -183,12 +184,7 @@ export default function AnnotationsPage() {
       >
         {/* Panel Content */}
         <div className="w-80 bg-white h-full flex flex-col shadow-2xl">
-          <div className="p-4 border-b border-gray-100">
-            <h2 className="text-sm font-semibold text-gray-900">Comments</h2>
-            <p className="text-xs text-gray-500 mt-0.5">
-              {activeAnnotations.length} {activeAnnotations.length === 1 ? 'item' : 'items'}
-            </p>
-          </div>
+          <AnnotationsPanelHeader activeCount={activeAnnotations.length} />
 
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
             {activeAnnotations.length === 0 ? (
